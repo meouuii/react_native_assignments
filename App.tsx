@@ -3,8 +3,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
   FlatList,
   SectionList,
@@ -16,7 +14,14 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 
-// ---------- Shared types & data ----------
+import api from './src/api/api';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import Button from './src/components/Button';
+import Card from './src/components/Card';
+import Input from './src/components/Input';
+import Loading from './src/components/Loading';
+
+// ---------- Shared types ----------
 
 interface Course {
   id: string;
@@ -24,300 +29,341 @@ interface Course {
   instructor: string;
   category: string;
   description: string;
+  featured?: boolean;
 }
-
-const initialCourses: Course[] = [
-  {
-    id: '1',
-    title: 'Intro to React Native',
-    instructor: 'Sarah Ahmed',
-    category: 'Programming',
-    description: 'Learn the basics of building mobile apps with RN.',
-  },
-  {
-    id: '2',
-    title: 'Advanced JavaScript',
-    instructor: 'Omar Khaled',
-    category: 'Programming',
-    description: 'Deep dive into closures, async/await, and prototypes.',
-  },
-  {
-    id: '3',
-    title: 'UI/UX Fundamentals',
-    instructor: 'Laila Hassan',
-    category: 'Design',
-    description: 'Principles of usable and beautiful interfaces.',
-  },
-  {
-    id: '4',
-    title: 'Figma for Designers',
-    instructor: 'Youssef Adel',
-    category: 'Design',
-    description: 'Prototyping and design systems in Figma.',
-  },
-  {
-    id: '5',
-    title: 'Marketing 101',
-    instructor: 'Nour Ibrahim',
-    category: 'Business',
-    description: 'Fundamentals of digital marketing strategy.',
-  },
-  {
-    id: '6',
-    title: 'Startup Finance',
-    instructor: 'Mona Fathy',
-    category: 'Business',
-    description: 'Budgeting and fundraising basics for startups.',
-  },
-];
 
 const CATEGORIES = ['Programming', 'Design', 'Business'];
 
-// ---------- Home Tab: ScrollView ----------
+// Maps a JSONPlaceholder "post" onto our Course shape so the demo API
+// stands in for a real courses backend.
+function postToCourse(post: any): Course {
+  return {
+    id: String(post.id),
+    title: post.title ? post.title.slice(0, 40) : `Course ${post.id}`,
+    instructor: `Instructor ${post.userId ?? '—'}`,
+    category: CATEGORIES[post.id % CATEGORIES.length],
+    description: post.body ? post.body.slice(0, 80) : '',
+    featured: false,
+  };
+}
+
+// ---------- Home Tab: ScrollView + Context (theme) ----------
 
 function HomeScreen() {
+  const { theme, colors, toggleTheme } = useTheme();
+
   return (
-    <SafeAreaView style={styles.flex} edges={['top']}>
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.heading}>Welcome to My Courses</Text>
-        <Text style={styles.subheading}>
-          Browse, add, and organize courses across categories.
+    <SafeAreaView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      edges={['top']}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={[styles.heading, { color: colors.text }]}>
+          Welcome to My Courses
+        </Text>
+        <Text style={[styles.subheading, { color: colors.subtext }]}>
+          Current theme: {theme}
         </Text>
 
+        <Button title="Toggle Light / Dark Theme" onPress={toggleTheme} />
+
         {CATEGORIES.map(category => (
-          <View key={category} style={styles.infoCard}>
-            <Text style={styles.infoCardTitle}>{category}</Text>
-            <Text style={styles.infoCardText}>
+          <Card key={category} title={category}>
+            <Text style={{ color: colors.subtext, fontSize: 13, lineHeight: 19 }}>
               Explore {category.toLowerCase()} courses taught by industry
-              experts. New content is added every month, and each course
-              includes hands-on projects to practice what you learn.
+              experts, with hands-on projects to practice what you learn.
             </Text>
-          </View>
+          </Card>
         ))}
 
-        <View style={styles.infoCard}>
-          <Text style={styles.infoCardTitle}>How it works</Text>
-          <Text style={styles.infoCardText}>
-            1. Go to the "Add Course" tab and fill in the form.{'\n'}
-            2. Your course is added to the shared list instantly.{'\n'}
-            3. Visit the "Courses" tab to see it in the full list and grouped
-            by category.
+        <Card title="About this app">
+          <Text style={{ color: colors.subtext, fontSize: 13, lineHeight: 19 }}>
+            Course data is fetched from a public API with Axios, theme state
+            is shared through Context, and the UI is built from reusable
+            Button, Card, Input, and Loading components.
           </Text>
-        </View>
-
-        <View style={styles.infoCard}>
-          <Text style={styles.infoCardTitle}>About this app</Text>
-          <Text style={styles.infoCardText}>
-            This screen demonstrates a scrollable layout with multiple
-            sections of content, built using React Native's ScrollView
-            component.
-          </Text>
-        </View>
+        </Card>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ---------- Add Course Tab: Form + useState ----------
+// ---------- Add Course Tab: Form + Axios POST ----------
 
 function AddCourseScreen({
   onAddCourse,
 }: {
   onAddCourse: (course: Course) => void;
 }) {
+  const { colors } = useTheme();
   const [title, setTitle] = useState('');
   const [instructor, setInstructor] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState('');
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setConfirmation('');
     if (!title.trim() || !instructor.trim() || !category.trim()) {
-      setConfirmation('Please fill in title, instructor, and category.');
+      setError('Please fill in title, instructor, and category.');
       return;
     }
+    setError('');
+    setSubmitting(true);
 
-    const newCourse: Course = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      instructor: instructor.trim(),
-      category: category.trim(),
-      description: description.trim(),
-    };
+    try {
+      // POST the new course to the API.
+      const response = await api.post('/posts', {
+        title: title.trim(),
+        body: description.trim(),
+        userId: 1,
+      });
 
-    onAddCourse(newCourse);
-    setConfirmation(`"${newCourse.title}" was added successfully!`);
+      const newCourse: Course = {
+        id: String(response.data.id ?? Date.now()),
+        title: title.trim(),
+        instructor: instructor.trim(),
+        category: category.trim(),
+        description: description.trim(),
+      };
 
-    setTitle('');
-    setInstructor('');
-    setCategory('');
-    setDescription('');
+      onAddCourse(newCourse);
+      setConfirmation(`"${newCourse.title}" was added successfully!`);
+      setTitle('');
+      setInstructor('');
+      setCategory('');
+      setDescription('');
+    } catch (err) {
+      setError('Something went wrong while saving the course.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <SafeAreaView style={styles.flex} edges={['top']}>
+    <SafeAreaView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.heading}>Add a New Course</Text>
+        <Text style={[styles.heading, { color: colors.text }]}>
+          Add a New Course
+        </Text>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Title</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Intro to Python"
-            value={title}
-            onChangeText={setTitle}
-          />
-        </View>
+        <Input label="Title" value={title} onChangeText={setTitle} placeholder="e.g. Intro to Python" />
+        <Input label="Instructor" value={instructor} onChangeText={setInstructor} placeholder="e.g. John Smith" />
+        <Input label="Category" value={category} onChangeText={setCategory} placeholder="Programming, Design, or Business" />
+        <Input
+          label="Description"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Short description of the course"
+          multiline
+          error={error}
+        />
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Instructor</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. John Smith"
-            value={instructor}
-            onChangeText={setInstructor}
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Category</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Programming, Design, or Business"
-            value={category}
-            onChangeText={setCategory}
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Short description of the course"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={4}
-          />
-        </View>
-
-        <TouchableOpacity style={styles.button} onPress={handleSubmit}>
-          <Text style={styles.buttonText}>Submit</Text>
-        </TouchableOpacity>
+        <Button title="Submit" onPress={handleSubmit} loading={submitting} />
 
         {confirmation ? (
-          <Text style={styles.confirmation}>{confirmation}</Text>
+          <Text style={[styles.confirmation, { color: colors.primary }]}>
+            {confirmation}
+          </Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ---------- Courses Tab: useEffect + map() + FlatList + SectionList ----------
+// ---------- Courses Tab: Axios GET/PUT/DELETE + map + FlatList + SectionList ----------
 
-function CoursesScreen({ courses }: { courses: Course[] }) {
+function CoursesScreen({
+  courses,
+  setCourses,
+}: {
+  courses: Course[];
+  setCourses: React.Dispatch<React.SetStateAction<Course[]>>;
+}) {
+  const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // useEffect: runs whenever the course list changes, simulating a
-  // load/refresh side effect (e.g. re-syncing data when new courses arrive).
+  // GET: fetch the initial course list once when this screen mounts.
   useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => {
-      console.log(`Courses updated — total: ${courses.length}`);
-      setLoading(false);
-    }, 400);
+    let isMounted = true;
 
-    return () => clearTimeout(timer);
-  }, [courses]);
+    const fetchCourses = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get('/posts', { params: { _limit: 6 } });
+        if (isMounted) {
+          setCourses(response.data.map(postToCourse));
+        }
+      } catch (err) {
+        if (isMounted) setErrorMsg('Could not load courses. Pull to retry.');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchCourses();
+    return () => {
+      isMounted = false;
+    };
+  }, [setCourses]);
+
+  // PUT: toggle a course's "featured" flag.
+  const toggleFeatured = async (course: Course) => {
+    try {
+      await api.put(`/posts/${course.id}`, {
+        id: course.id,
+        title: course.title,
+        body: course.description,
+        featured: !course.featured,
+      });
+      setCourses(prev =>
+        prev.map(c =>
+          c.id === course.id ? { ...c, featured: !c.featured } : c,
+        ),
+      );
+    } catch (err) {
+      setErrorMsg('Could not update that course.');
+    }
+  };
+
+  // DELETE: remove a course.
+  const deleteCourse = async (course: Course) => {
+    try {
+      await api.delete(`/posts/${course.id}`);
+      setCourses(prev => prev.filter(c => c.id !== course.id));
+    } catch (err) {
+      setErrorMsg('Could not delete that course.');
+    }
+  };
 
   const sections = CATEGORIES.map(category => ({
     title: category,
     data: courses.filter(c => c.category === category),
   })).filter(section => section.data.length > 0);
 
-  return (
-    <SafeAreaView style={styles.flex} edges={['top']}>
-      <View style={styles.screenPadding}>
-        <Text style={styles.heading}>All Courses</Text>
-        {loading && <Text style={styles.subheading}>Refreshing list…</Text>}
+  const renderCourseCard = (item: Course) => (
+    <Card key={item.id}>
+      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>
+        {item.featured ? '⭐ ' : ''}
+        {item.title}
+      </Text>
+      <Text style={{ color: colors.subtext, fontSize: 12, marginTop: 2 }}>
+        {item.instructor} • {item.category}
+      </Text>
+      {item.description ? (
+        <Text style={{ color: colors.subtext, fontSize: 12, marginTop: 4 }}>
+          {item.description}
+        </Text>
+      ) : null}
+      <View style={styles.cardActions}>
+        <Button
+          title={item.featured ? 'Unfeature' : 'Feature'}
+          variant="secondary"
+          onPress={() => toggleFeatured(item)}
+        />
+        <Button title="Delete" variant="danger" onPress={() => deleteCourse(item)} />
+      </View>
+    </Card>
+  );
 
-        <Text style={styles.sectionLabel}>Categories (map)</Text>
+  return (
+    <SafeAreaView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      edges={['top']}>
+      <View style={styles.screenPadding}>
+        <Text style={[styles.heading, { color: colors.text }]}>All Courses</Text>
+        {errorMsg ? <Text style={{ color: colors.danger }}>{errorMsg}</Text> : null}
+
+        <Text style={[styles.sectionLabel, { color: colors.text }]}>
+          Categories (map)
+        </Text>
         <View style={styles.chipRow}>
           {CATEGORIES.map(category => (
-            <View key={category} style={styles.chip}>
-              <Text style={styles.chipText}>{category}</Text>
+            <View key={category} style={[styles.chip, { backgroundColor: colors.card }]}>
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>
+                {category}
+              </Text>
             </View>
           ))}
         </View>
-
-        <Text style={styles.sectionLabel}>Course List (FlatList)</Text>
       </View>
 
-      <FlatList
-        data={courses}
-        keyExtractor={item => item.id}
-        style={styles.flatListFixedHeight}
-        renderItem={({ item }) => (
-          <View style={styles.courseCard}>
-            <Text style={styles.courseTitle}>{item.title}</Text>
-            <Text style={styles.courseMeta}>
-              {item.instructor} • {item.category}
+      {loading ? (
+        <Loading message="Fetching courses from the API..." />
+      ) : (
+        <>
+          <View style={styles.screenPadding}>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>
+              Course List (FlatList)
             </Text>
-            {item.description ? (
-              <Text style={styles.courseDesc}>{item.description}</Text>
-            ) : null}
           </View>
-        )}
-      />
+          <FlatList
+            data={courses}
+            keyExtractor={item => item.id}
+            style={styles.listFixedHeight}
+            contentContainerStyle={styles.screenPadding}
+            renderItem={({ item }) => renderCourseCard(item)}
+          />
 
-      <View style={styles.screenPadding}>
-        <Text style={styles.sectionLabel}>Grouped by Category (SectionList)</Text>
-      </View>
-
-      <SectionList
-        sections={sections}
-        keyExtractor={item => item.id}
-        style={styles.flatListFixedHeight}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
-        )}
-        renderItem={({ item }) => (
-          <View style={styles.courseCard}>
-            <Text style={styles.courseTitle}>{item.title}</Text>
-            <Text style={styles.courseMeta}>{item.instructor}</Text>
+          <View style={styles.screenPadding}>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>
+              Grouped by Category (SectionList)
+            </Text>
           </View>
-        )}
-      />
+          <SectionList
+            sections={sections}
+            keyExtractor={item => item.id}
+            style={styles.listFixedHeight}
+            contentContainerStyle={styles.screenPadding}
+            renderSectionHeader={({ section }) => (
+              <Text style={[styles.sectionHeader, { color: colors.text, backgroundColor: colors.card }]}>
+                {section.title}
+              </Text>
+            )}
+            renderItem={({ item }) => renderCourseCard(item)}
+          />
+        </>
+      )}
     </SafeAreaView>
   );
 }
 
-// ---------- Root App with Bottom Tab Navigation ----------
+// ---------- Root App ----------
 
 const Tab = createBottomTabNavigator();
 
-function App() {
-  const [courses, setCourses] = useState<Course[]>(initialCourses);
+function RootTabs() {
+  const [courses, setCourses] = useState<Course[]>([]);
 
   const addCourse = (course: Course) => {
     setCourses(prev => [...prev, course]);
   };
 
   return (
+    <NavigationContainer>
+      <Tab.Navigator screenOptions={{ headerShown: true }}>
+        <Tab.Screen name="Home" component={HomeScreen} />
+        <Tab.Screen name="Add Course">
+          {() => <AddCourseScreen onAddCourse={addCourse} />}
+        </Tab.Screen>
+        <Tab.Screen name="Courses">
+          {() => <CoursesScreen courses={courses} setCourses={setCourses} />}
+        </Tab.Screen>
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+}
+
+function App() {
+  return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Tab.Navigator screenOptions={{ headerShown: true }}>
-          <Tab.Screen name="Home" component={HomeScreen} />
-          <Tab.Screen name="Add Course">
-            {() => <AddCourseScreen onAddCourse={addCourse} />}
-          </Tab.Screen>
-          <Tab.Screen name="Courses">
-            {() => <CoursesScreen courses={courses} />}
-          </Tab.Screen>
-        </Tab.Navigator>
-      </NavigationContainer>
+      <ThemeProvider>
+        <RootTabs />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -329,70 +375,14 @@ const styles = StyleSheet.create({
   screenPadding: { paddingHorizontal: 16, paddingTop: 12 },
   scrollContent: { padding: 16, paddingBottom: 32 },
   heading: { fontSize: 22, fontWeight: '700', marginBottom: 6 },
-  subheading: { fontSize: 14, color: '#555', marginBottom: 16 },
-  sectionLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  infoCard: {
-    backgroundColor: '#f2f4f7',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  infoCardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
-  infoCardText: { fontSize: 13, color: '#444', lineHeight: 19 },
-  formGroup: { marginBottom: 14 },
-  label: { fontSize: 14, fontWeight: '600', marginBottom: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    backgroundColor: '#fff',
-  },
-  textArea: { height: 90, textAlignVertical: 'top' },
-  button: {
-    backgroundColor: '#2f6fed',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 6,
-  },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  confirmation: { marginTop: 12, color: '#2f6fed', fontSize: 13 },
+  subheading: { fontSize: 14, marginBottom: 16 },
+  sectionLabel: { fontSize: 16, fontWeight: '600', marginTop: 12, marginBottom: 8 },
+  confirmation: { marginTop: 12, fontSize: 13 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  chip: {
-    backgroundColor: '#e6ecfb',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  chipText: { fontSize: 13, color: '#2f6fed', fontWeight: '600' },
-  flatListFixedHeight: { maxHeight: 170 },
-  courseCard: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 8,
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 4,
-  },
-  courseTitle: { fontSize: 15, fontWeight: '700' },
-  courseMeta: { fontSize: 12, color: '#666', marginTop: 2 },
-  courseDesc: { fontSize: 12, color: '#444', marginTop: 4 },
-  sectionHeader: {
-    fontSize: 14,
-    fontWeight: '700',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-  },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  listFixedHeight: { maxHeight: 220 },
+  sectionHeader: { fontSize: 14, fontWeight: '700', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, marginBottom: 4 },
+  cardActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
 });
 
 export default App;
